@@ -1868,6 +1868,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_logger"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
+dependencies = [
+ "humantime",
+ "is-terminal",
+ "log",
+ "regex",
+ "termcolor",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6367,7 +6380,7 @@ dependencies = [
 name = "solana-logger"
 version = "2.0.0"
 dependencies = [
- "env_logger",
+ "env_logger 0.9.3",
  "lazy_static",
  "log",
 ]
@@ -6411,7 +6424,7 @@ name = "solana-metrics"
 version = "2.0.0"
 dependencies = [
  "crossbeam-channel",
- "env_logger",
+ "env_logger 0.9.3",
  "gethostname",
  "lazy_static",
  "log",
@@ -7316,6 +7329,7 @@ version = "2.0.0"
 dependencies = [
  "async-trait",
  "bincode",
+ "env_logger 0.10.2",
  "futures-util",
  "indexmap 2.2.5",
  "indicatif",
@@ -7328,6 +7342,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-sdk",
+ "solana-udp-client",
  "thiserror",
  "tokio",
 ]

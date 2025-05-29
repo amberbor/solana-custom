@@ -83,7 +83,7 @@ impl LeaderTpuCacheUpdateInfo {
     }
 }
 
-struct LeaderTpuCache {
+pub struct LeaderTpuCache {
     protocol: Protocol,
     first_slot: Slot,
     leaders: Vec<Pubkey>,
@@ -237,6 +237,21 @@ impl LeaderTpuCache {
         }
         (has_error, cluster_refreshed)
     }
+
+    // Add new method to get leader info
+    // pub fn get_leader_info(&self, estimated_current_slot: Slot, fanout_slots: u64) -> Vec<(Pubkey, SocketAddr)> {
+    //     let mut leader_info = Vec::new();
+    //     let current_slot = std::cmp::max(estimated_current_slot, self.first_slot);
+        
+    //     for leader_slot in current_slot..current_slot + fanout_slots {
+    //         if let Some(leader) = self.get_slot_leader(leader_slot) {
+    //             if let Some(tpu_socket) = self.leader_tpu_map.get(leader) {
+    //                 leader_info.push((*leader, *tpu_socket));
+    //             }
+    //         }
+    //     }
+    //     leader_info
+    // }
 }
 
 /// Client which sends transactions directly to the current leader's TPU port over UDP.
@@ -676,6 +691,24 @@ where
         self.exit.store(true, Ordering::Relaxed);
         self.leader_tpu_service.join().await;
     }
+
+    /// Get information about current and upcoming leaders including their TPU sockets
+    pub fn get_leader_info(&self, fanout_slots: u64) -> Vec<(u64, Pubkey, SocketAddr)> {
+        let current_slot = self.leader_tpu_service.estimated_current_slot();
+        let leader_tpu_cache = self.leader_tpu_service.leader_tpu_cache.read().unwrap();
+        let mut leader_info = Vec::new();
+        
+        // Get TPU sockets for each leader
+        for leader_slot in current_slot..current_slot + fanout_slots {
+            if let Some(leader) = leader_tpu_cache.get_slot_leader(leader_slot) {
+                println!("Slot: {}, Leader: {:?}", leader_slot, leader);
+                if let Some(tpu_socket) = leader_tpu_cache.leader_tpu_map.get(leader) {
+                    leader_info.push((leader_slot, *leader, *tpu_socket));
+                }
+            }
+        }
+        leader_info
+    }
 }
 
 impl<P, M, C> Drop for TpuClient<P, M, C> {
@@ -879,3 +912,4 @@ async fn maybe_fetch_cache_info(
         maybe_slot_leaders,
     }
 }
+
