@@ -1,6 +1,6 @@
 [package]
 name = "custom-solana-tpu-client"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Amber Borici <amberborici10@gmail.com>"]
 description = "A Solana TPU client library."
@@ -9,7 +9,7 @@ repository = "https://github.com/amberbor/solana-custom"
 publish = true
 
 [lib]
-name = "solana_tpu_client"
+name = "custom_solana_tpu_client"
 path = "src/lib.rs"
 
 [dependencies]
