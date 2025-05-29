@@ -1,6 +1,6 @@
 use {
     solana_rpc_client::rpc_client::RpcClient,
-    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
+    custom_solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     std::sync::Arc,
     env_logger,
