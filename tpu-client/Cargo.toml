@@ -28,7 +28,7 @@ solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-sdk = { workspace = true }
 solana-udp-client = { workspace = true }
-thiserror = { workspace = true }
+thiserror = "1.0.61"
 tokio = { workspace = true, features = ["full"] }
 env_logger = "0.10.0"
 
