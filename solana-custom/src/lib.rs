@@ -73,7 +73,7 @@ fn init_tpu_clients(
     println!(
         "[{}][init] RPC+TPU fanout_slots={} initialized",
         Utc::now().to_rfc3339(),
-        fanout_slots
+        fanout_slots.unwrap_or(2)
     );
     Ok(())
 }
@@ -192,7 +192,7 @@ fn send_transaction_async<'p>(
                     fails
                 );
                 // reconstruct the client
-                init_tpu_clients(&rpc_url, &ws_url, Some(slots_val))?;
+                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
             }
         }
 
