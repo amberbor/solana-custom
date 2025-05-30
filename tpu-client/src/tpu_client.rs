@@ -75,20 +75,20 @@ where
 {
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
-    pub fn send_transaction(&self, transaction: &Transaction) -> bool {
-        self.invoke(self.tpu_client.send_transaction(transaction))
+    pub fn send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> bool {
+        self.invoke(self.tpu_client.send_transaction(transaction, fanout_slots))
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
-    pub fn send_wire_transaction(&self, wire_transaction: Vec<u8>) -> bool {
-        self.invoke(self.tpu_client.send_wire_transaction(wire_transaction))
+    pub fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> bool {
+        self.invoke(self.tpu_client.send_wire_transaction(wire_transaction, fanout_slots))
     }
 
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     /// Returns the last error if all sends fail
-    pub fn try_send_transaction(&self, transaction: &Transaction) -> TransportResult<()> {
-        self.invoke(self.tpu_client.try_send_transaction(transaction))
+    pub fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> TransportResult<()> {
+        self.invoke(self.tpu_client.try_send_transaction(transaction, fanout_slots))
     }
 
     /// Serialize and send a batch of transactions to the current and upcoming leader TPUs according
@@ -107,8 +107,8 @@ where
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
     /// Returns the last error if all sends fail
-    pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
-        self.invoke(self.tpu_client.try_send_wire_transaction(wire_transaction))
+    pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> TransportResult<()> {
+        self.invoke(self.tpu_client.try_send_wire_transaction(wire_transaction, fanout_slots))
     }
 
     /// Create a new client that disconnects when dropped

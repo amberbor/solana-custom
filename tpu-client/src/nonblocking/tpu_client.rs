@@ -397,14 +397,14 @@ where
 {
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
-    pub async fn send_transaction(&self, transaction: &Transaction) -> bool {
+    pub async fn send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> bool {
         let wire_transaction = serialize(transaction).expect("serialization should succeed");
-        self.send_wire_transaction(wire_transaction).await
+        self.send_wire_transaction(wire_transaction, fanout_slots).await
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
-    pub async fn send_wire_transaction(&self, wire_transaction: Vec<u8>) -> bool {
-        self.try_send_wire_transaction(wire_transaction)
+    pub async fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> bool {
+        self.try_send_wire_transaction(wire_transaction, fanout_slots)
             .await
             .is_ok()
     }
@@ -412,9 +412,9 @@ where
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     /// Returns the last error if all sends fail
-    pub async fn try_send_transaction(&self, transaction: &Transaction) -> TransportResult<()> {
+    pub async fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> TransportResult<()> {
         let wire_transaction = serialize(transaction).expect("serialization should succeed");
-        self.try_send_wire_transaction(wire_transaction).await
+        self.try_send_wire_transaction(wire_transaction, fanout_slots).await
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
@@ -422,10 +422,10 @@ where
     pub async fn try_send_wire_transaction(
         &self,
         wire_transaction: Vec<u8>,
+        fanout_slots: u64,
     ) -> TransportResult<()> {
         let leaders = self
-            .leader_tpu_service
-            .leader_tpu_sockets(self.fanout_slots);
+            .leader_tpu_service.leader_tpu_sockets(fanout_slots);
         let futures = leaders
             .iter()
             .map(|addr| {
