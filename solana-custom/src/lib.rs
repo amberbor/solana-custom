@@ -3,6 +3,8 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::PyErr;
 use pyo3_asyncio::tokio as pyo3_tokio;
 use pyo3::wrap_pyfunction;
+use pyo3::types::PyString;
+use serde_json;
 
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
@@ -29,7 +31,30 @@ static TPU_CLIENT_SELL: OnceCell<Arc<TpuClient<QuicPool, QuicConnectionManager, 
 static BUY_FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
 static SELL_FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// Blocking Python function for polling confirmation
+// Blocking Python function for polling confirmation
+#[pyfunction]
+fn return_leader_info(
+    py: Python,
+    fanout_slots: u64
+) -> PyResult<PyObject> {
+    let tpu_service = TPU_CLIENT_BUY
+        .get()
+        .ok_or_else(|| PyRuntimeError::new_err("TPU_CLIENT_BUY not initialized"))?
+        .clone();
+
+    let leader_info = tpu_service.get_leader_info(fanout_slots);
+    // Convert HashSet<Pubkey> to Vec<String> for proper JSON serialization
+    let leader_strings: Vec<String> = leader_info.into_iter()
+        .map(|pubkey| pubkey.to_string())
+        .collect();
+    
+    let leader_info_str = serde_json::to_string(&leader_strings)
+        .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+    let py_str = PyString::new(py, &leader_info_str);
+    Ok(py_str.to_object(py))
+}
+
+// / Blocking Python function for polling confirmation
 // #[pyfunction]
 // fn return_slot_sockets(
 //     py: Python,
@@ -217,7 +242,7 @@ fn send_transaction_async<'p>(
                     action,
                     fails
                 );
-                // reconstruct the client (you’ll need your RPC/WS URLs here)
+                // reconstruct the client (you'll need your RPC/WS URLs here)
                 init_tpu_clients(&rpc_url, &ws_url, buy_slots, sell_slots)?;
             }
         }
@@ -280,10 +305,11 @@ fn send_transaction_confirmed<'p>(
 }
 
 #[pymodule]
-fn solana_tpu_client(_py: Python, m: &PyModule) -> PyResult<()> {
+fn solana_custom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tpu_clients, m)?)?;
     m.add_function(wrap_pyfunction!(wait_for_confirmation, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_async, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_confirmed, m)?)?;
+    m.add_function(wrap_pyfunction!(return_leader_info, m)?)?;
     Ok(())
 }

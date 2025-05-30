@@ -19,8 +19,9 @@ pyo3-asyncio               = { version = "0.20", features = ["attributes", "toki
 tokio                      = { workspace = true }
 bincode                    = { workspace = true }
 chrono                     = { workspace = true }
+serde_json                 = "1.0"
 solana-sdk                 = { workspace = true }
-solana-rpc-client          = { workspace = true }
+solana-quic-client          = { workspace = true }
 solana-transaction-status  = { workspace = true }
 solana-connection-cache    = { workspace = true }
 solana-client              = { workspace = true }
