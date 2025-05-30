@@ -214,7 +214,7 @@ fn send_transaction_batch_async<'p>(
     max_retries: usize,
     rpc_url: String,
     ws_url: String,
-    fanout_slots: Option<u64>,
+    fanout_slots: u64,
 ) -> PyResult<&'p PyAny> {
     let client = TPU_CLIENT
         .get()
