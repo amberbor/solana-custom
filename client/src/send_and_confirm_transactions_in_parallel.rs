@@ -271,7 +271,8 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
                 context,
                 *index,
                 counter,
-                fanout_slots= 15,
+                    15,
+
             )
             .and_then(move |_| async move {
                 // send to confirm the transaction
