@@ -56,7 +56,7 @@ fn return_leader_info(
 fn init_tpu_clients(
     rpc_url: &str,
     ws_url: &str,
-    fanout_slots: Option<u64>,
+    fanout_slots: u64,
 ) -> PyResult<()> {
     let rpc = Arc::new(RpcClient::new(rpc_url.to_string()));
     RPC_CLIENT
@@ -145,7 +145,7 @@ fn send_transaction_async<'p>(
     max_retries: usize,
     rpc_url: String,
     ws_url: String,
-    fanout_slots: Option<u64>,
+    fanout_slots: u64,
 ) -> PyResult<&'p PyAny> {
     let client = TPU_CLIENT
         .get()
