@@ -247,8 +247,7 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
     tpu_client: &Option<QuicTpuClient>,
     messages_with_index: Vec<(usize, Message)>,
     signers: &T,
-    context: &SendingContext,
-    fanout_slots: u64,
+    context: &SendingContext
 ) -> Result<()> {
     let current_transaction_count = messages_with_index.len();
     let mut futures = vec![];
@@ -272,7 +271,7 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
                 context,
                 *index,
                 counter,
-                fanout_slots,
+                fanout_slots= 15,
             )
             .and_then(move |_| async move {
                 // send to confirm the transaction
@@ -488,7 +487,6 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
             messages_with_index,
             signers,
             &context,
-            fanout_slots,
         )
         .await?;
 
@@ -497,7 +495,7 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
             &progress_bar,
             &tpu_client,
             &context,
-            fanout_slots,
+            15,
         )
         .await;
 
