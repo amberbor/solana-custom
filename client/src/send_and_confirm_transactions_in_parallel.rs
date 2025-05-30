@@ -248,6 +248,7 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
     messages_with_index: Vec<(usize, Message)>,
     signers: &T,
     context: &SendingContext,
+    fanout_slots: u64,
 ) -> Result<()> {
     let current_transaction_count = messages_with_index.len();
     let mut futures = vec![];
@@ -271,6 +272,7 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
                 context,
                 *index,
                 counter,
+                fanout_slots,
             )
             .and_then(move |_| async move {
                 // send to confirm the transaction
@@ -310,6 +312,7 @@ async fn confirm_transactions_till_block_height_and_resend_unexpired_transaction
     progress_bar: &Option<indicatif::ProgressBar>,
     tpu_client: &Option<QuicTpuClient>,
     context: &SendingContext,
+    fanout_slots: u64,
 ) {
     let unconfirmed_transaction_map = context.unconfirmed_transaction_map.clone();
     let current_block_height = context.current_block_height.clone();
@@ -356,7 +359,7 @@ async fn confirm_transactions_till_block_height_and_resend_unexpired_transaction
                     .map(|x| x.serialized_transaction.clone())
                     .collect();
                 let _ = tpu_client
-                    .try_send_wire_transaction_batch(txs_to_resend_over_tpu)
+                    .try_send_wire_transaction_batch(txs_to_resend_over_tpu, fanout_slots)
                     .await;
 
                 let elapsed = instant.elapsed();
@@ -485,6 +488,7 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
             messages_with_index,
             signers,
             &context,
+            fanout_slots,
         )
         .await?;
 
@@ -493,6 +497,7 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
             &progress_bar,
             &tpu_client,
             &context,
+            fanout_slots,
         )
         .await;
 
