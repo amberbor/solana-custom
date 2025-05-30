@@ -235,12 +235,16 @@ fn send_transaction_batch_async<'p>(
             .map(|tx| tx.signatures[0].to_string())
             .collect();
 
+        // Get fanout slots from client config
+        let fanout_slots_val = fanout_slots.unwrap_or(client.fanout_slots);
+
         for attempt in 1..=max_retries {
             // send batch on a blocking thread
             let result = tokio::task::spawn_blocking({
                 let txs = transactions.clone();
                 let client = client.clone();
-                move || client.try_send_transaction_batch(&txs, client.fanout_slots)
+                let slots = fanout_slots_val;
+                move || client.try_send_transaction_batch(&txs, slots)
             })
             .await
             .map_err(|e| PyRuntimeError::new_err(format!("join error: {}", e)))?;
