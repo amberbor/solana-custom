@@ -189,11 +189,12 @@ async fn send_transaction_with_rpc_fallback(
     context: &SendingContext,
     index: usize,
     counter: usize,
+    fanout_slots: u64,
 ) -> Result<()> {
     tokio::time::sleep(SEND_INTERVAL.saturating_mul(counter as u32)).await;
     let send_over_rpc = if let Some(tpu_client) = tpu_client {
         !tpu_client
-            .send_wire_transaction(serialized_transaction.clone())
+            .send_wire_transaction(serialized_transaction.clone(), fanout_slots)
             .await
     } else {
         true
