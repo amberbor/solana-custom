@@ -39,8 +39,7 @@ fn return_leader_info(
         .ok_or_else(|| PyRuntimeError::new_err("TPU_CLIENT not initialized"))?
         .clone();
 
-    let slots_val = fanout_slots.unwrap_or(2);
-    let leader_info = tpu_service.get_leader_info(slots_val);
+    let leader_info = tpu_service.get_leader_info(fanout_slots);
     // Convert HashSet<Pubkey> to Vec<String> for proper JSON serialization
     let leader_strings: Vec<String> = leader_info.into_iter()
         .map(|pubkey| pubkey.to_string())
@@ -64,9 +63,7 @@ fn init_tpu_clients(
         .set(rpc.clone())
         .map_err(|_| PyRuntimeError::new_err("RPC already initialized"))?;
 
-    let slots_val = fanout_slots.unwrap_or(2);
     let mut cfg = TpuClientConfig::default();
-    cfg.fanout_slots = slots_val;
     let client = TpuClient::new(rpc.clone(), ws_url, cfg)
         .map_err(|e| PyRuntimeError::new_err(format!("TPU init error: {}", e)))?;
     TPU_CLIENT
@@ -76,7 +73,7 @@ fn init_tpu_clients(
     println!(
         "[{}][init] RPC+TPU fanout_slots={} initialized",
         Utc::now().to_rfc3339(),
-        slots_val
+        fanout_slots
     );
     Ok(())
 }
@@ -271,7 +268,7 @@ fn send_transaction_batch_async<'p>(
                     fails
                 );
                 // reconstruct the client
-                init_tpu_clients(&rpc_url, &ws_url, Some(slots_val))?;
+                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
             }
         }
 
