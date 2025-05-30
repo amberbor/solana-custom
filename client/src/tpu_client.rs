@@ -49,36 +49,36 @@ where
 {
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
-    pub fn send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> bool {
+    pub fn send_transaction(&self, transaction: &Transaction, fanout_slots: Option<u64>) -> bool {
         self.tpu_client.send_transaction(transaction, fanout_slots)
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
-    pub fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> bool {
+    pub fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: Option<u64>) -> bool {
         self.tpu_client.send_wire_transaction(wire_transaction, fanout_slots)
     }
 
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     /// Returns the last error if all sends fail
-    pub fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> TransportResult<()> {
+    pub fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: Option<u64>) -> TransportResult<()> {
         self.tpu_client.try_send_transaction(transaction, fanout_slots)
     }
 
     /// Serialize and send a batch of transactions to the current and upcoming leader TPUs according
     /// to fanout size
     /// Returns the last error if all sends fail
-    pub fn try_send_transaction_batch(&self, transactions: &[Transaction], fanout_slots: u64) -> TransportResult<()> {
+    pub fn try_send_transaction_batch(&self, transactions: &[Transaction], fanout_slots: Option<u64>) -> TransportResult<()> {
         self.tpu_client.try_send_transaction_batch(transactions, fanout_slots)
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
     /// Returns the last error if all sends fail
-    pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> TransportResult<()> {
+    pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: Option<u64>) -> TransportResult<()> {
         self.tpu_client.try_send_wire_transaction(wire_transaction, fanout_slots)
     }
 
-    pub fn get_leader_info(&self, fanout_slots: u64) -> HashSet<Pubkey> {
+    pub fn get_leader_info(&self, fanout_slots: Option<u64>) -> HashSet<Pubkey> {
         self.tpu_client.get_leader_info(fanout_slots)
     }
 }

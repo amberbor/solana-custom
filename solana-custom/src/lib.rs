@@ -32,14 +32,15 @@ static FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
 #[pyfunction]
 fn return_leader_info(
     py: Python,
-    fanout_slots: u64
+    fanout_slots: Option<u64>
 ) -> PyResult<PyObject> {
     let tpu_service = TPU_CLIENT
         .get()
         .ok_or_else(|| PyRuntimeError::new_err("TPU_CLIENT not initialized"))?
         .clone();
 
-    let leader_info = tpu_service.get_leader_info(fanout_slots);
+    let slots_val = fanout_slots.unwrap_or(2);
+    let leader_info = tpu_service.get_leader_info(slots_val);
     // Convert HashSet<Pubkey> to Vec<String> for proper JSON serialization
     let leader_strings: Vec<String> = leader_info.into_iter()
         .map(|pubkey| pubkey.to_string())
@@ -56,7 +57,7 @@ fn return_leader_info(
 fn init_tpu_clients(
     rpc_url: &str,
     ws_url: &str,
-    fanout_slots: u64,
+    fanout_slots: Option<u64>,
 ) -> PyResult<()> {
     let rpc = Arc::new(RpcClient::new(rpc_url.to_string()));
     RPC_CLIENT
@@ -145,7 +146,7 @@ fn send_transaction_async<'p>(
     max_retries: usize,
     rpc_url: String,
     ws_url: String,
-    fanout_slots: u64,
+    fanout_slots: Option<u64>,
 ) -> PyResult<&'p PyAny> {
     let client = TPU_CLIENT
         .get()
@@ -162,12 +163,13 @@ fn send_transaction_async<'p>(
             .cloned()
             .ok_or_else(|| PyRuntimeError::new_err("No signature found in transaction"))?;
 
+        let slots_val = fanout_slots.unwrap_or(2);
         for attempt in 1..=max_retries {
             // send on a blocking thread
             let sent = tokio::task::spawn_blocking({
                 let tx = tx.clone();
                 let client = client.clone();
-                move || client.send_transaction(&tx, fanout_slots)
+                move || client.send_transaction(&tx, slots_val)
             })
             .await
             .map_err(|e| PyRuntimeError::new_err(format!("join error: {}", e)))?;
@@ -195,7 +197,7 @@ fn send_transaction_async<'p>(
                     fails
                 );
                 // reconstruct the client
-                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
+                init_tpu_clients(&rpc_url, &ws_url, Some(slots_val))?;
             }
         }
 
@@ -214,7 +216,7 @@ fn send_transaction_batch_async<'p>(
     max_retries: usize,
     rpc_url: String,
     ws_url: String,
-    fanout_slots: u64,
+    fanout_slots: Option<u64>,
 ) -> PyResult<&'p PyAny> {
     let client = TPU_CLIENT
         .get()
@@ -235,16 +237,14 @@ fn send_transaction_batch_async<'p>(
             .map(|tx| tx.signatures[0].to_string())
             .collect();
 
-        // Get fanout slots from client config
-        let fanout_slots_val = fanout_slots.unwrap_or(fanout_slots);
+        let slots_val = fanout_slots.unwrap_or(2);
 
         for attempt in 1..=max_retries {
             // send batch on a blocking thread
             let result = tokio::task::spawn_blocking({
                 let txs = transactions.clone();
                 let client = client.clone();
-                let slots = fanout_slots_val;
-                move || client.try_send_transaction_batch(&txs, slots)
+                move || client.try_send_transaction_batch(&txs, slots_val)
             })
             .await
             .map_err(|e| PyRuntimeError::new_err(format!("join error: {}", e)))?;
@@ -274,7 +274,7 @@ fn send_transaction_batch_async<'p>(
                     fails
                 );
                 // reconstruct the client
-                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
+                init_tpu_clients(&rpc_url, &ws_url, Some(slots_val))?;
             }
         }
 

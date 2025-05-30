@@ -261,7 +261,7 @@ pub struct TpuClient<
     M, // ConnectionManager
     C, // NewConnectionConfig
 > {
-    fanout_slots: u64,
+    fanout_slots: Option<u64>,
     leader_tpu_service: LeaderTpuService,
     exit: Arc<AtomicBool>,
     rpc_client: Arc<RpcClient>,
@@ -397,13 +397,13 @@ where
 {
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
-    pub async fn send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> bool {
+    pub async fn send_transaction(&self, transaction: &Transaction, fanout_slots: Option<u64>) -> bool {
         let wire_transaction = serialize(transaction).expect("serialization should succeed");
         self.send_wire_transaction(wire_transaction, fanout_slots).await
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
-    pub async fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> bool {
+    pub async fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: Option<u64>) -> bool {
         self.try_send_wire_transaction(wire_transaction, fanout_slots)
             .await
             .is_ok()
@@ -412,7 +412,7 @@ where
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     /// Returns the last error if all sends fail
-    pub async fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> TransportResult<()> {
+    pub async fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: Option<u64>) -> TransportResult<()> {
         let wire_transaction = serialize(transaction).expect("serialization should succeed");
         self.try_send_wire_transaction(wire_transaction, fanout_slots).await
     }
@@ -422,10 +422,11 @@ where
     pub async fn try_send_wire_transaction(
         &self,
         wire_transaction: Vec<u8>,
-        fanout_slots: u64,
+        fanout_slots: Option<u64>,
     ) -> TransportResult<()> {
+        let slots = fanout_slots.unwrap_or(MAX_FANOUT_SLOTS);
         let leaders = self
-            .leader_tpu_service.leader_tpu_sockets(fanout_slots);
+            .leader_tpu_service.leader_tpu_sockets(slots);
         let futures = leaders
             .iter()
             .map(|addr| {
@@ -466,11 +467,12 @@ where
     pub async fn try_send_wire_transaction_batch(
         &self,
         wire_transactions: Vec<Vec<u8>>,
-        fanout_slots: u64,
+        fanout_slots: Option<u64>,
     ) -> TransportResult<()> {
+        let slots = fanout_slots.unwrap_or(MAX_FANOUT_SLOTS);
         let leaders = self
             .leader_tpu_service
-            .leader_tpu_sockets(fanout_slots);
+            .leader_tpu_sockets(slots);
         let futures = leaders
             .iter()
             .map(|addr| {
@@ -532,7 +534,7 @@ where
                 .await?;
 
         Ok(Self {
-            fanout_slots: config.fanout_slots.clamp(1, MAX_FANOUT_SLOTS),
+            fanout_slots: Some(config.fanout_slots.clamp(1, MAX_FANOUT_SLOTS)),
             leader_tpu_service,
             exit,
             rpc_client,
@@ -583,7 +585,7 @@ where
                         let wire_transaction = serialize(transaction).unwrap();
                         let leaders = self
                             .leader_tpu_service
-                            .leader_tpu_sockets(self.fanout_slots);
+                            .leader_tpu_sockets(self.fanout_slots.unwrap_or(MAX_FANOUT_SLOTS));
                         futures.extend(send_wire_transaction_futures(
                             &progress_bar,
                             &progress,
@@ -603,7 +605,7 @@ where
                         "Checking sent transactions",
                     );
                     for (index, (tx_results, (_i, transaction))) in results
-                        .chunks(self.fanout_slots as usize)
+                        .chunks(self.fanout_slots.unwrap_or(MAX_FANOUT_SLOTS) as usize)
                         .zip(pending_transactions.values())
                         .enumerate()
                     {
@@ -694,15 +696,14 @@ where
     }
 
     /// Get information about current and upcoming leaders
-    pub fn get_leader_info(&self, fanout_slots: u64) -> HashSet<Pubkey> {
+    pub fn get_leader_info(&self, fanout_slots: Option<u64>) -> HashSet<Pubkey> {
         let current_slot = self.leader_tpu_service.estimated_current_slot();
         let leader_tpu_cache = self.leader_tpu_service.leader_tpu_cache.read().unwrap();
         let mut leader_info = HashSet::new();
         
-        // Get unique leaders
-        for leader_slot in current_slot..current_slot + fanout_slots {
+        let slots = fanout_slots.unwrap_or(MAX_FANOUT_SLOTS);
+        for leader_slot in current_slot..current_slot + slots {
             if let Some(leader) = leader_tpu_cache.get_slot_leader(leader_slot) {
-                // println!("Slot: {}, Leader: {:?}", leader_slot, leader);
                 leader_info.insert(*leader);
             }
         }

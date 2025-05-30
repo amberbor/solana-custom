@@ -19,12 +19,12 @@ where
     M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
     C: NewConnectionConfig,
 {
-    fn send_transaction(&self, transaction: Transaction) -> Result<Signature> {
+    fn send_transaction(&self, transaction: Transaction, fanout_slots: Option<u64>) -> Result<Signature> {
         let signature = transaction.signatures[0];
-        self.try_send_transaction(&transaction)?;
+        self.try_send_transaction(&transaction, fanout_slots)?;
         Ok(signature)
     }
-    fn send_batch(&self, transactions: Vec<Transaction>, fanout_slots: u64) -> Result<()> {
+    fn send_batch(&self, transactions: Vec<Transaction>, fanout_slots: Option<u64>) -> Result<()> {
         self.try_send_transaction_batch(&transactions, fanout_slots)?;        
         Ok(())
     }

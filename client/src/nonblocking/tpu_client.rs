@@ -35,12 +35,12 @@ where
 {
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
-    pub async fn send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> bool {
+    pub async fn send_transaction(&self, transaction: &Transaction, fanout_slots: Option<u64>) -> bool {
         self.tpu_client.send_transaction(transaction, fanout_slots).await
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size
-    pub async fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: u64) -> bool {
+    pub async fn send_wire_transaction(&self, wire_transaction: Vec<u8>, fanout_slots: Option<u64>) -> bool {
         self.tpu_client
             .send_wire_transaction(wire_transaction, fanout_slots)
             .await
@@ -49,7 +49,7 @@ where
     /// Serialize and send transaction to the current and upcoming leader TPUs according to fanout
     /// size
     /// Returns the last error if all sends fail
-    pub async fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: u64) -> TransportResult<()> {
+    pub async fn try_send_transaction(&self, transaction: &Transaction, fanout_slots: Option<u64>) -> TransportResult<()> {
         self.tpu_client.try_send_transaction(transaction, fanout_slots).await
     }
 
@@ -58,7 +58,7 @@ where
     pub async fn try_send_wire_transaction(
         &self,
         wire_transaction: Vec<u8>,
-        fanout_slots: u64,
+        fanout_slots: Option<u64>,
     ) -> TransportResult<()> {
         self.tpu_client
             .try_send_wire_transaction(wire_transaction, fanout_slots)
@@ -71,7 +71,7 @@ where
     pub async fn try_send_wire_transaction_batch(
         &self,
         wire_transactions: Vec<Vec<u8>>,
-        fanout_slots: u64,
+        fanout_slots: Option<u64>,
     ) -> TransportResult<()> {
         self.tpu_client
             .try_send_wire_transaction_batch(wire_transactions, fanout_slots)
