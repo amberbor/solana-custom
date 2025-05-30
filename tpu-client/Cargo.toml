@@ -10,22 +10,24 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
-async-trait = { workspace = true }
-bincode = { workspace = true }
-futures-util = { workspace = true }
-indexmap = { workspace = true }
+async-trait.workspace = true
+bincode.workspace = true
+futures-util.workspace = true
+indexmap.workspace = true
 indicatif = { workspace = true, optional = true }
-log = { workspace = true }
-rayon = { workspace = true }
-solana-connection-cache = { workspace = true }
-solana-measure = { workspace = true }
-solana-metrics = { workspace = true }
-solana-pubsub-client = { workspace = true }
-solana-rpc-client = { workspace = true }
-solana-rpc-client-api = { workspace = true }
-solana-sdk = { workspace = true }
-thiserror = { workspace = true }
+log.workspace = true
+rayon.workspace = true
+solana-connection-cache = { workspace = true, default-features = false }
+solana-measure.workspace = true
+solana-metrics.workspace = true
+solana-pubsub-client.workspace = true
+solana-rpc-client = { workspace = true, default-features = false }
+solana-rpc-client-api.workspace = true
+solana-sdk.workspace = true
+solana-udp-client.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["full"] }
+env_logger.workspace = true
 
 [features]
 default = ["spinner"]

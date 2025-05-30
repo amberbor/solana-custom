@@ -6,10 +6,10 @@ use {
         ConnectionCache, ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
     solana_rpc_client::rpc_client::RpcClient,
-    solana_sdk::{clock::Slot, transaction::Transaction, transport::Result as TransportResult},
+    solana_sdk::{clock::Slot, pubkey::Pubkey, transaction::Transaction, transport::Result as TransportResult},
     std::{
-        collections::VecDeque,
-        net::UdpSocket,
+        collections::{HashSet, VecDeque},
+        net::{SocketAddr, UdpSocket},
         sync::{Arc, RwLock},
     },
 };
@@ -173,6 +173,15 @@ where
 
     pub fn rpc_client(&self) -> &RpcClient {
         &self.rpc_client
+    }
+
+    /// Get information about current and upcoming leaders including their TPU sockets
+    // pub fn get_leader_info(&self, fanout_slots: u64) -> Vec<(u64, Pubkey, SocketAddr)> {
+    //     self.tpu_client.get_leader_info(fanout_slots)
+    // }
+
+    pub fn get_leader_info(&self, fanout_slots: u64) -> HashSet<Pubkey> {
+        self.tpu_client.get_leader_info(fanout_slots)
     }
 
     fn invoke<T, F: std::future::Future<Output = T>>(&self, f: F) -> T {

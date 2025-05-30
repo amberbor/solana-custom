@@ -15,6 +15,8 @@ use {
     solana_tpu_client::tpu_client::{Result, TpuClient as BackendTpuClient},
     solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     std::sync::Arc,
+    std::collections::HashSet,
+    solana_sdk::pubkey::Pubkey,
 };
 pub use {
     crate::nonblocking::tpu_client::TpuSenderError,
@@ -74,6 +76,10 @@ where
     /// Returns the last error if all sends fail
     pub fn try_send_wire_transaction(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
         self.tpu_client.try_send_wire_transaction(wire_transaction)
+    }
+
+    pub fn get_leader_info(&self, fanout_slots: u64) -> HashSet<Pubkey> {
+        self.tpu_client.get_leader_info(fanout_slots)
     }
 }
 

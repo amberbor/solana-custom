@@ -1,6 +1,6 @@
 use {
     solana_rpc_client::rpc_client::RpcClient,
-    custom_solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
+    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     std::sync::Arc,
     env_logger,
@@ -36,13 +36,11 @@ fn main() {
     println!("End time: {:?}", end_time);
     println!("Elapsed: {:?}", end_time.duration_since(start_time));
 
-    for (i, (slot, leader, tpu_addr)) in leader_info.iter().enumerate() {
+    for (i, leader) in leader_info.iter().enumerate() {
         println!(
-            "Count: {}, Slot: {}, Leader: {} TPU: {}",
+            "Count: {}, Leader: {}",
             i + 1,
-            slot,
             leader,
-            tpu_addr
         );
     }
 }
