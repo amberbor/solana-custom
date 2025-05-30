@@ -24,22 +24,19 @@ use solana_client::{
 use solana_transaction_status::{UiTransactionEncoding, EncodedConfirmedTransactionWithStatusMeta};
 use solana_sdk::{transaction::Transaction, signature::Signature};
 
-// Static globals for RPC and two TPU clients (buy and sell)
+// Static globals for RPC and TPU client
 static RPC_CLIENT: OnceCell<Arc<RpcClient>> = OnceCell::new();
-static TPU_CLIENT_BUY: OnceCell<Arc<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>>> = OnceCell::new();
-static TPU_CLIENT_SELL: OnceCell<Arc<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>>> = OnceCell::new();
-static BUY_FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
-static SELL_FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
+static TPU_CLIENT: OnceCell<Arc<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>>> = OnceCell::new();
+static FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-// Blocking Python function for polling confirmation
 #[pyfunction]
 fn return_leader_info(
     py: Python,
     fanout_slots: u64
 ) -> PyResult<PyObject> {
-    let tpu_service = TPU_CLIENT_BUY
+    let tpu_service = TPU_CLIENT
         .get()
-        .ok_or_else(|| PyRuntimeError::new_err("TPU_CLIENT_BUY not initialized"))?
+        .ok_or_else(|| PyRuntimeError::new_err("TPU_CLIENT not initialized"))?
         .clone();
 
     let leader_info = tpu_service.get_leader_info(fanout_slots);
@@ -54,66 +51,31 @@ fn return_leader_info(
     Ok(py_str.to_object(py))
 }
 
-// / Blocking Python function for polling confirmation
-// #[pyfunction]
-// fn return_slot_sockets(
-//     py: Python,
-//     fanout_slots: u64
-// ) -> PyResult<PyObject> {
-//     let tpu_service = TPU_CLIENT_BUY
-//         .get()
-//         .ok_or_else(|| PyRuntimeError::new_err("TPU_CLIENT_BUY not initialized"))?
-//         .clone();
-
-//     let sockets = tpu_service.tpu_client.leader_tpu_service(fanout_slots);
-//     // 3. Convert Vec<SocketAddr> → Vec<String>
-//     let socket_strs: Vec<String> = sockets
-//         .into_iter()
-//         .map(|addr| addr.to_string())
-//         .collect();
-
-//     // 4. Build a Python list of those strings and return
-//     let py_list = PyList::new(py, &socket_strs);
-//     Ok(py_list.to_object(py))
-// }
-
-
-/// Initialize RPC and both TPU clients (buy/sell)
+/// Initialize RPC and TPU client
 #[pyfunction]
 fn init_tpu_clients(
     rpc_url: &str,
     ws_url: &str,
-    buy_slots: Option<u64>,
-    sell_slots: Option<u64>,
+    fanout_slots: Option<u64>,
 ) -> PyResult<()> {
     let rpc = Arc::new(RpcClient::new(rpc_url.to_string()));
     RPC_CLIENT
         .set(rpc.clone())
         .map_err(|_| PyRuntimeError::new_err("RPC already initialized"))?;
 
-    let buy_slots_val = buy_slots.unwrap_or(2);
-    let mut buy_cfg = TpuClientConfig::default();
-    buy_cfg.fanout_slots = buy_slots_val;
-    let buy_client = TpuClient::new(rpc.clone(), ws_url, buy_cfg)
-        .map_err(|e| PyRuntimeError::new_err(format!("TPU buy init error: {}", e)))?;
-    TPU_CLIENT_BUY
-        .set(Arc::new(buy_client))
-        .map_err(|_| PyRuntimeError::new_err("TPU buy already initialized"))?;
-
-    let sell_slots_val = sell_slots.unwrap_or(2);
-    let mut sell_cfg = TpuClientConfig::default();
-    sell_cfg.fanout_slots = sell_slots_val;
-    let sell_client = TpuClient::new(rpc.clone(), ws_url, sell_cfg)
-        .map_err(|e| PyRuntimeError::new_err(format!("TPU sell init error: {}", e)))?;
-    TPU_CLIENT_SELL
-        .set(Arc::new(sell_client))
-        .map_err(|_| PyRuntimeError::new_err("TPU sell already initialized"))?;
+    let slots_val = fanout_slots.unwrap_or(2);
+    let mut cfg = TpuClientConfig::default();
+    cfg.fanout_slots = slots_val;
+    let client = TpuClient::new(rpc.clone(), ws_url, cfg)
+        .map_err(|e| PyRuntimeError::new_err(format!("TPU init error: {}", e)))?;
+    TPU_CLIENT
+        .set(Arc::new(client))
+        .map_err(|_| PyRuntimeError::new_err("TPU already initialized"))?;
 
     println!(
-        "[{}][init] RPC+TPU buy={} slots sell={} slots initialized",
+        "[{}][init] RPC+TPU fanout_slots={} initialized",
         Utc::now().to_rfc3339(),
-        buy_slots_val,
-        sell_slots_val
+        slots_val
     );
     Ok(())
 }
@@ -161,7 +123,7 @@ fn wait_for_confirmation(
     wait_ms: u64,
 ) -> PyResult<bool> {
     if RPC_CLIENT.get().is_none() {
-        init_tpu_clients(rpc_url, ws_url, Some(2), Some(2))?;
+        init_tpu_clients(rpc_url, ws_url, Some(2))?;
     }
     let sig = signature
         .parse::<Signature>()
@@ -180,22 +142,14 @@ fn wait_for_confirmation(
 fn send_transaction_async<'p>(
     py: Python<'p>,
     raw_tx: Vec<u8>,
-    action: String,
     max_retries: usize,
     rpc_url: String,
     ws_url: String,
-    buy_slots: Option<u64>,
-    sell_slots: Option<u64>,
+    fanout_slots: Option<u64>,
 ) -> PyResult<&'p PyAny> {
-    // pick the right global client and fail counter
-    let (client_cell, fail_counter) = match action.as_str() {
-        "buy" => (&TPU_CLIENT_BUY, &BUY_FAIL_COUNT),
-        "sell" => (&TPU_CLIENT_SELL, &SELL_FAIL_COUNT),
-        _ => return Err(PyRuntimeError::new_err("Invalid action; must be 'buy' or 'sell'")),
-    };
-    let client = client_cell
+    let client = TPU_CLIENT
         .get()
-        .ok_or_else(|| PyRuntimeError::new_err(format!("TPU client '{}' not initialized", action)))?
+        .ok_or_else(|| PyRuntimeError::new_err("TPU client not initialized"))?
         .clone();
 
     pyo3_tokio::future_into_py(py, async move {
@@ -224,26 +178,24 @@ fn send_transaction_async<'p>(
             }
 
             // failure path: increment and check counter
-            let fails = fail_counter.fetch_add(1, Ordering::SeqCst) + 1;
+            let fails = FAIL_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
             eprintln!(
-                "[{}] {} attempt {}/{} failed",
+                "[{}] attempt {}/{} failed",
                 Utc::now().to_rfc3339(),
-                action,
                 attempt,
                 max_retries
             );
 
             if fails >= max_retries {
                 // you've hit your threshold: reset counter and re-init client
-                fail_counter.store(0, Ordering::SeqCst);
+                FAIL_COUNT.store(0, Ordering::SeqCst);
                 eprintln!(
-                    "[{}] Re-initializing TPU '{}' client after {} total consecutive failures",
+                    "[{}] Re-initializing TPU client after {} total consecutive failures",
                     Utc::now().to_rfc3339(),
-                    action,
                     fails
                 );
-                // reconstruct the client (you'll need your RPC/WS URLs here)
-                init_tpu_clients(&rpc_url, &ws_url, buy_slots, sell_slots)?;
+                // reconstruct the client
+                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
             }
         }
 
@@ -255,52 +207,78 @@ fn send_transaction_async<'p>(
     })
 }
 
-
-/// Async send + confirm; action = "buy" or "sell"
 #[pyfunction]
-fn send_transaction_confirmed<'p>(
+fn send_transaction_batch_async<'p>(
     py: Python<'p>,
-    raw_tx: Vec<u8>,
-    action: &str,
+    raw_txs: Vec<Vec<u8>>,
     max_retries: usize,
-    poll_time: usize,
-    wait_ms: u64,
+    rpc_url: String,
+    ws_url: String,
+    fanout_slots: Option<u64>,
 ) -> PyResult<&'p PyAny> {
-    let client_cell = match action {
-        "buy" => &TPU_CLIENT_BUY,
-        "sell" => &TPU_CLIENT_SELL,
-        _ => return Err(PyRuntimeError::new_err("Invalid action; must be 'buy' or 'sell'")),
-    };
-    let client = client_cell
+    let client = TPU_CLIENT
         .get()
-        .ok_or_else(|| PyRuntimeError::new_err(format!("TPU client '{}' not initialized", action)))?
-        .clone();
-    let rpc = RPC_CLIENT
-        .get()
-        .ok_or_else(|| PyRuntimeError::new_err("RPC not initialized"))?
+        .ok_or_else(|| PyRuntimeError::new_err("TPU client not initialized"))?
         .clone();
 
     pyo3_tokio::future_into_py(py, async move {
-        let tx: Transaction = deserialize(&raw_tx)
-            .map_err(|e| PyRuntimeError::new_err(format!("deserialize error: {}", e)))?;
-        let sig = tx
-            .signatures
-            .get(0)
-            .cloned()
-            .ok_or_else(|| PyRuntimeError::new_err("No signature"))?;
-        for _ in 0..max_retries {
-            let sent = tokio::task::spawn_blocking({
-                let c = client.clone();
-                let t = tx.clone();
-                move || c.send_transaction(&t)
+        // deserialize all transactions
+        let transactions: Vec<Transaction> = raw_txs
+            .into_iter()
+            .map(|raw_tx| deserialize(&raw_tx)
+                .map_err(|e| PyRuntimeError::new_err(format!("deserialize error: {}", e))))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Get all signatures for tracking
+        let signatures: Vec<String> = transactions
+            .iter()
+            .map(|tx| tx.signatures[0].to_string())
+            .collect();
+
+        for attempt in 1..=max_retries {
+            // send batch on a blocking thread
+            let result = tokio::task::spawn_blocking({
+                let txs = transactions.clone();
+                let client = client.clone();
+                move || client.try_send_transaction_batch(&txs, client.fanout_slots)
             })
             .await
             .map_err(|e| PyRuntimeError::new_err(format!("join error: {}", e)))?;
-            if sent && wait_for_confirmation_internal(rpc.clone(), sig.clone(), poll_time, wait_ms).await? {
-                return Ok(sig.to_string());
+
+            if result.is_ok() {
+                // success: return the signatures as a JSON array
+                let signatures_json = serde_json::to_string(&signatures)
+                    .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+                return Ok(signatures_json);
+            }
+
+            // failure path: increment and check counter
+            let fails = FAIL_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+            eprintln!(
+                "[{}] batch attempt {}/{} failed",
+                Utc::now().to_rfc3339(),
+                attempt,
+                max_retries
+            );
+
+            if fails >= max_retries {
+                // you've hit your threshold: reset counter and re-init client
+                FAIL_COUNT.store(0, Ordering::SeqCst);
+                eprintln!(
+                    "[{}] Re-initializing TPU client after {} total consecutive failures",
+                    Utc::now().to_rfc3339(),
+                    fails
+                );
+                // reconstruct the client
+                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
             }
         }
-        Err(PyRuntimeError::new_err("Transaction not confirmed after retries"))
+
+        // all retries exhausted
+        Err(PyRuntimeError::new_err(format!(
+            "send_transaction_batch failed after {} attempts",
+            max_retries
+        )))
     })
 }
 
@@ -309,7 +287,7 @@ fn solana_custom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tpu_clients, m)?)?;
     m.add_function(wrap_pyfunction!(wait_for_confirmation, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_async, m)?)?;
-    m.add_function(wrap_pyfunction!(send_transaction_confirmed, m)?)?;
     m.add_function(wrap_pyfunction!(return_leader_info, m)?)?;
+    m.add_function(wrap_pyfunction!(send_transaction_batch_async, m)?)?;
     Ok(())
 }

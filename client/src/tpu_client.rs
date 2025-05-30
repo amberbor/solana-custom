@@ -68,8 +68,8 @@ where
     /// Serialize and send a batch of transactions to the current and upcoming leader TPUs according
     /// to fanout size
     /// Returns the last error if all sends fail
-    pub fn try_send_transaction_batch(&self, transactions: &[Transaction]) -> TransportResult<()> {
-        self.tpu_client.try_send_transaction_batch(transactions)
+    pub fn try_send_transaction_batch(&self, transactions: &[Transaction], fanout_slots: u64) -> TransportResult<()> {
+        self.tpu_client.try_send_transaction_batch(transactions, fanout_slots)
     }
 
     /// Send a wire transaction to the current and upcoming leader TPUs according to fanout size

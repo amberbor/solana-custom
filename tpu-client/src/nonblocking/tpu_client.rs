@@ -466,10 +466,11 @@ where
     pub async fn try_send_wire_transaction_batch(
         &self,
         wire_transactions: Vec<Vec<u8>>,
+        fanout_slots: u64,
     ) -> TransportResult<()> {
         let leaders = self
             .leader_tpu_service
-            .leader_tpu_sockets(self.fanout_slots);
+            .leader_tpu_sockets(fanout_slots);
         let futures = leaders
             .iter()
             .map(|addr| {

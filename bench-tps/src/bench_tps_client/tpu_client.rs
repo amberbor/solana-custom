@@ -24,8 +24,8 @@ where
         self.try_send_transaction(&transaction)?;
         Ok(signature)
     }
-    fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()> {
-        self.try_send_transaction_batch(&transactions)?;
+    fn send_batch(&self, transactions: Vec<Transaction>, fanout_slots: u64) -> Result<()> {
+        self.try_send_transaction_batch(&transactions, fanout_slots)?;        
         Ok(())
     }
     fn get_latest_blockhash(&self) -> Result<Hash> {
