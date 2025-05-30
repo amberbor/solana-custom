@@ -271,8 +271,7 @@ async fn sign_all_messages_and_send<T: Signers + ?Sized>(
                 context,
                 *index,
                 counter,
-                    15,
-
+                Some(15),
             )
             .and_then(move |_| async move {
                 // send to confirm the transaction
