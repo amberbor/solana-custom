@@ -189,7 +189,7 @@ async fn send_transaction_with_rpc_fallback(
     context: &SendingContext,
     index: usize,
     counter: usize,
-    fanout_slots: u64,
+    fanout_slots: Option<u64>,
 ) -> Result<()> {
     tokio::time::sleep(SEND_INTERVAL.saturating_mul(counter as u32)).await;
     let send_over_rpc = if let Some(tpu_client) = tpu_client {
@@ -312,7 +312,7 @@ async fn confirm_transactions_till_block_height_and_resend_unexpired_transaction
     progress_bar: &Option<indicatif::ProgressBar>,
     tpu_client: &Option<QuicTpuClient>,
     context: &SendingContext,
-    fanout_slots: u64,
+    fanout_slots: Option<u64>,
 ) {
     let unconfirmed_transaction_map = context.unconfirmed_transaction_map.clone();
     let current_block_height = context.current_block_height.clone();
@@ -496,7 +496,7 @@ pub async fn send_and_confirm_transactions_in_parallel<T: Signers + ?Sized>(
             &progress_bar,
             &tpu_client,
             &context,
-            15,
+            Some(15),
         )
         .await;
 
