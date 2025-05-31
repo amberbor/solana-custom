@@ -29,6 +29,10 @@ static RPC_CLIENT: OnceCell<Arc<RpcClient>> = OnceCell::new();
 static TPU_CLIENT: OnceCell<Arc<TpuClient<QuicPool, QuicConnectionManager, QuicConfig>>> = OnceCell::new();
 static FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+// Global variables for RPC and WS URLs
+static RPC_URL: OnceCell<String> = OnceCell::new();
+static WS_URL: OnceCell<String> = OnceCell::new();
+
 #[pyfunction]
 fn return_leader_info(
     py: Python,
@@ -58,6 +62,12 @@ fn init_tpu_clients(
     ws_url: &str,
     fanout_slots: Option<u64>,
 ) -> PyResult<()> {
+    // Set the global URLs
+    RPC_URL.set(rpc_url.to_string())
+        .map_err(|_| PyRuntimeError::new_err("RPC_URL already initialized"))?;
+    WS_URL.set(ws_url.to_string())
+        .map_err(|_| PyRuntimeError::new_err("WS_URL already initialized"))?;
+
     let rpc = Arc::new(RpcClient::new(rpc_url.to_string()));
     RPC_CLIENT
         .set(rpc.clone())
@@ -115,12 +125,12 @@ async fn wait_for_confirmation_internal(
 #[pyfunction]
 fn wait_for_confirmation(
     signature: &str,
-    rpc_url: &str,
-    ws_url: &str,
     poll_time: usize,
     wait_ms: u64,
 ) -> PyResult<bool> {
     if RPC_CLIENT.get().is_none() {
+        let rpc_url = RPC_URL.get().ok_or_else(|| PyRuntimeError::new_err("RPC_URL not initialized"))?;
+        let ws_url = WS_URL.get().ok_or_else(|| PyRuntimeError::new_err("WS_URL not initialized"))?;
         init_tpu_clients(rpc_url, ws_url, Some(2))?;
     }
     let sig = signature
@@ -141,8 +151,6 @@ fn send_transaction_async<'p>(
     py: Python<'p>,
     raw_tx: Vec<u8>,
     max_retries: usize,
-    rpc_url: String,
-    ws_url: String,
     fanout_slots: Option<u64>,
 ) -> PyResult<&'p PyAny> {
     let client = TPU_CLIENT
@@ -191,8 +199,10 @@ fn send_transaction_async<'p>(
                     Utc::now().to_rfc3339(),
                     fails
                 );
-                // reconstruct the client
-                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
+                // reconstruct the client using global URLs
+                let rpc_url = RPC_URL.get().ok_or_else(|| PyRuntimeError::new_err("RPC_URL not initialized"))?;
+                let ws_url = WS_URL.get().ok_or_else(|| PyRuntimeError::new_err("WS_URL not initialized"))?;
+                init_tpu_clients(rpc_url, ws_url, fanout_slots)?;
             }
         }
 
@@ -209,8 +219,6 @@ fn send_transaction_batch_async<'p>(
     py: Python<'p>,
     raw_txs: Vec<Vec<u8>>,
     max_retries: usize,
-    rpc_url: String,
-    ws_url: String,
     fanout_slots: Option<u64>,
 ) -> PyResult<&'p PyAny> {
     let client = TPU_CLIENT
@@ -231,7 +239,6 @@ fn send_transaction_batch_async<'p>(
             .iter()
             .map(|tx| tx.signatures[0].to_string())
             .collect();
-
 
         for attempt in 1..=max_retries {
             // send batch on a blocking thread
@@ -267,8 +274,10 @@ fn send_transaction_batch_async<'p>(
                     Utc::now().to_rfc3339(),
                     fails
                 );
-                // reconstruct the client
-                init_tpu_clients(&rpc_url, &ws_url, fanout_slots)?;
+                // reconstruct the client using global URLs
+                let rpc_url = RPC_URL.get().ok_or_else(|| PyRuntimeError::new_err("RPC_URL not initialized"))?;
+                let ws_url = WS_URL.get().ok_or_else(|| PyRuntimeError::new_err("WS_URL not initialized"))?;
+                init_tpu_clients(rpc_url, ws_url, fanout_slots)?;
             }
         }
 
