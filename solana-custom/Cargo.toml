@@ -25,3 +25,4 @@ solana-quic-client          = { workspace = true }
 solana-transaction-status  = { workspace = true }
 solana-connection-cache    = { workspace = true }
 solana-client              = { workspace = true }
+solana-tpu-client = { path = "../tpu-client" }

@@ -265,7 +265,7 @@ pub struct TpuClient<
     leader_tpu_service: LeaderTpuService,
     exit: Arc<AtomicBool>,
     rpc_client: Arc<RpcClient>,
-    connection_cache: Arc<ConnectionCache<P, M, C>>,
+    pub(crate) connection_cache: Arc<ConnectionCache<P, M, C>>,
 }
 
 /// Helper function which generates futures to all be awaited together for maximum
@@ -696,12 +696,12 @@ where
     }
 
     /// Get information about current and upcoming leaders
-    pub fn get_leader_info(&self, fanout_slots: Option<u64>) -> HashSet<Pubkey> {
+    pub async fn get_leader_info(&self, fanout_slots: Option<u64>) -> std::collections::HashSet<solana_sdk::pubkey::Pubkey> {
         let current_slot = self.leader_tpu_service.estimated_current_slot();
+        let slots = fanout_slots.unwrap_or(crate::tpu_client::MAX_FANOUT_SLOTS);
+        println!("[DEBUG] get_leader_info: current_slot = {} fanout_slots = {}", current_slot, slots);
         let leader_tpu_cache = self.leader_tpu_service.leader_tpu_cache.read().unwrap();
-        let mut leader_info = HashSet::new();
-        
-        let slots = fanout_slots.unwrap_or(MAX_FANOUT_SLOTS);
+        let mut leader_info = std::collections::HashSet::new();
         for leader_slot in current_slot..current_slot + slots {
             if let Some(leader) = leader_tpu_cache.get_slot_leader(leader_slot) {
                 leader_info.insert(*leader);
@@ -712,22 +712,28 @@ where
 
     //Get leader slot , leader pubkey, tpu socket address
 
-    // pub fn get_leader_info(&self, fanout_slots: u64) -> Vec<(u64, Pubkey, SocketAddr)> {
-    //     let current_slot = self.leader_tpu_service.estimated_current_slot();
-    //     let leader_tpu_cache = self.leader_tpu_service.leader_tpu_cache.read().unwrap();
-    //     let mut leader_info = Vec::new();
+    pub async fn get_leader_info_slot(&self, fanout_slots: u64) -> Vec<(u64, solana_sdk::pubkey::Pubkey, std::net::SocketAddr)> {
+        let current_slot = self.leader_tpu_service.estimated_current_slot();
+        println!("[DEBUG] get_leader_info_slot: current_slot = {} fanout_slots = {}", current_slot, fanout_slots);
+        let leader_tpu_cache = self.leader_tpu_service.leader_tpu_cache.read().unwrap();
+        let mut leader_info = Vec::new();
         
-    //     // Get TPU sockets for each leader
-    //     for leader_slot in current_slot..current_slot + fanout_slots {
-    //         if let Some(leader) = leader_tpu_cache.get_slot_leader(leader_slot) {
-    //             println!("Slot: {}, Leader: {:?}", leader_slot, leader);
-    //             if let Some(tpu_socket) = leader_tpu_cache.leader_tpu_map.get(leader) {
-    //                 leader_info.push((leader_slot, *leader, *tpu_socket));
-    //             }
-    //         }
-    //     }
-    //     leader_info
-    // }
+        // Get TPU sockets for each leader
+        for leader_slot in current_slot..current_slot + fanout_slots {
+            if let Some(leader) = leader_tpu_cache.get_slot_leader(leader_slot) {
+                // println!("Slot: {}, Leader: {:?}", leader_slot, leader);
+                if let Some(tpu_socket) = leader_tpu_cache.leader_tpu_map.get(leader) {
+                    leader_info.push((leader_slot, *leader, *tpu_socket));
+                }
+            }
+        }
+        leader_info
+    }
+
+    /// Public getter for the underlying connection cache
+    pub fn connection_cache(&self) -> &ConnectionCache<P, M, C> {
+        &self.connection_cache
+    }
 }
 
 impl<P, M, C> Drop for TpuClient<P, M, C> {

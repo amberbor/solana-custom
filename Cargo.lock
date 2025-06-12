@@ -5958,6 +5958,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-custom-rust"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "bincode",
+ "chrono",
+ "once_cell",
+ "serde_json",
+ "solana-client",
+ "solana-connection-cache",
+ "solana-quic-client",
+ "solana-sdk",
+ "solana-tpu-client",
+ "solana-transaction-status",
+ "tokio",
+]
+
+[[package]]
 name = "solana-dos"
 version = "2.0.0"
 dependencies = [
@@ -7807,6 +7825,7 @@ dependencies = [
  "solana-connection-cache",
  "solana-quic-client",
  "solana-sdk",
+ "solana-tpu-client",
  "solana-transaction-status",
  "tokio",
 ]

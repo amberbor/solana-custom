@@ -16,6 +16,7 @@ use {
     solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     std::sync::Arc,
     std::collections::HashSet,
+    std::net::SocketAddr,
     solana_sdk::pubkey::Pubkey,
 };
 pub use {
@@ -78,8 +79,12 @@ where
         self.tpu_client.try_send_wire_transaction(wire_transaction, fanout_slots)
     }
 
-    pub fn get_leader_info(&self, fanout_slots: Option<u64>) -> HashSet<Pubkey> {
-        self.tpu_client.get_leader_info(fanout_slots)
+    pub async fn get_leader_info(&self, fanout_slots: Option<u64>) -> HashSet<Pubkey> {
+        self.tpu_client.get_leader_info(fanout_slots).await
+    }
+
+    pub async fn get_leader_info_slot(&self, fanout_slots: u64) -> Vec<(u64, Pubkey, SocketAddr)> {
+        self.tpu_client.get_leader_info_slot(fanout_slots).await
     }
 }
 

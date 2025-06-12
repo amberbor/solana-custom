@@ -77,6 +77,14 @@ where
             .try_send_wire_transaction_batch(wire_transactions, fanout_slots)
             .await
     }
+
+    pub async fn get_leader_info(&self, fanout_slots: Option<u64>) -> std::collections::HashSet<solana_sdk::pubkey::Pubkey> {
+        self.tpu_client.get_leader_info(fanout_slots).await
+    }
+
+    pub async fn get_leader_info_slot(&self, fanout_slots: u64) -> Vec<(u64, solana_sdk::pubkey::Pubkey, std::net::SocketAddr)> {
+        self.tpu_client.get_leader_info_slot(fanout_slots).await
+    }
 }
 
 impl TpuClient<QuicPool, QuicConnectionManager, QuicConfig> {

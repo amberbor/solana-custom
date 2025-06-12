@@ -119,7 +119,8 @@ members = [
     "wen-restart",
     "zk-keygen",
     "zk-token-sdk",
-    "solana-custom"
+    "solana-custom",
+    "solana-custom-rust"
 ]
 
 exclude = ["programs/sbf"]
