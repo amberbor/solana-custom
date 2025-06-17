@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use bincode::deserialize;
 use chrono::Utc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
 use std::sync::Mutex;
 
 use tokio::runtime::Builder as RuntimeBuilder;
@@ -39,6 +39,10 @@ static RPC_URL: OnceCell<String> = OnceCell::new();
 static WS_URL: OnceCell<String> = OnceCell::new();
 
 static GLOBAL_RUNTIME: OnceCell<Runtime> = OnceCell::new();
+
+// Global variables for slot tracking
+static CURRENT_SLOT: AtomicU64 = AtomicU64::new(0);
+static SLOT_UPDATE_TASK: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
 
 fn get_or_init_runtime() -> &'static Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
@@ -122,7 +126,6 @@ fn init_tpu_clients(
     let _ = WS_URL.set(ws_url.to_string());
 
     let rpc = Arc::new(RpcClient::new(rpc_url.to_string()));
-    // print_total_leader_schedule(&rpc);
     let _ = RPC_CLIENT.set(rpc.clone());
 
     let cfg = TpuClientConfig {
@@ -175,6 +178,9 @@ fn init_tpu_clients(
     //         }
     //     }
     // });
+
+    // Start slot tracking
+    start_slot_tracking_task(rpc);
 
     Ok(())
 }
@@ -315,6 +321,34 @@ fn print_total_leader_schedule(rpc: &Arc<RpcClient>) {
     }
 }
 
+/// Get the current slot value
+#[pyfunction]
+fn get_current_slot() -> PyResult<u64> {
+    Ok(CURRENT_SLOT.load(Ordering::SeqCst))
+}
+
+/// Start background slot tracking task
+fn start_slot_tracking_task(rpc: Arc<RpcClient>) {
+    if SLOT_UPDATE_TASK.get().is_none() {
+        let rpc_clone = rpc.clone();
+        let rt = get_or_init_runtime();
+        let handle = rt.spawn(async move {
+            loop {
+                match rpc_clone.get_slot().await {
+                    Ok(slot) => {
+                        CURRENT_SLOT.store(slot, Ordering::SeqCst);
+                    }
+                    Err(e) => {
+                        eprintln!("[{}] Error fetching slot: {}", Utc::now().to_rfc3339(), e);
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        });
+        let _ = SLOT_UPDATE_TASK.set(handle);
+    }
+}
+
 #[pymodule]
 fn solana_custom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tpu_clients, m)?)?;
@@ -323,5 +357,6 @@ fn solana_custom(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(return_leader_info, m)?)?;
     m.add_function(wrap_pyfunction!(return_leader_info_slots, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_batch_async, m)?)?;
+    m.add_function(wrap_pyfunction!(get_current_slot, m)?)?;
     Ok(())
 }
