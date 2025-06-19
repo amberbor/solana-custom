@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::PyErr;
-use pyo3_asyncio::tokio as pyo3_tokio;
+use pyo3_async_runtimes::tokio;
 use pyo3::wrap_pyfunction;
 use pyo3::types::PyString;
 use serde_json;
@@ -15,19 +15,18 @@ use chrono::Utc;
 use std::sync::atomic::{AtomicUsize, Ordering, AtomicU64};
 use std::sync::Mutex;
 
-use tokio::runtime::Builder as RuntimeBuilder;
+use ::tokio::runtime::Builder as RuntimeBuilder;
+use ::tokio::runtime::Runtime;
+use ::tokio::time;
+use ::tokio::task::JoinHandle;
 use solana_quic_client::{QuicPool, QuicConnectionManager, QuicConfig};
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_tpu_client::nonblocking::tpu_client::TpuClient;
 use solana_client::tpu_client::TpuClientConfig;
 use solana_transaction_status::{UiTransactionEncoding, EncodedConfirmedTransactionWithStatusMeta};
 use solana_sdk::{transaction::Transaction, signature::Signature};
-use solana_client::rpc_response::RpcLeaderSchedule;
 use solana_sdk::pubkey::Pubkey;
-use std::str::FromStr;
 use solana_connection_cache::connection_cache::NewConnectionConfig;
-use tokio::runtime::Runtime;
-use solana_connection_cache::connection_cache::ConnectionCache;
 
 // Static globals for RPC and TPU client
 static RPC_CLIENT: OnceCell<Arc<RpcClient>> = OnceCell::new();
@@ -42,7 +41,7 @@ static GLOBAL_RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
 // Global variables for slot tracking
 static CURRENT_SLOT: AtomicU64 = AtomicU64::new(0);
-static SLOT_UPDATE_TASK: OnceCell<tokio::task::JoinHandle<()>> = OnceCell::new();
+static SLOT_UPDATE_TASK: OnceCell<JoinHandle<()>> = OnceCell::new();
 
 fn get_or_init_runtime() -> &'static Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
@@ -74,17 +73,14 @@ async fn get_leader_info_slot_async(
 fn return_leader_info(
     py: Python,
     fanout_slots: Option<u64>
-) -> PyResult<&PyAny> {
+) -> PyResult<Bound<PyAny>> {
     let rpc_client = RPC_CLIENT.get().ok_or_else(|| PyRuntimeError::new_err("RPC_CLIENT not initialized"))?.clone();
-    pyo3_tokio::future_into_py(py, async move {
+    tokio::future_into_py(py, async move {
         let leader_info = get_leader_info_async(&rpc_client, fanout_slots).await?;
         let leader_strings: Vec<String> = leader_info.into_iter().map(|pubkey| pubkey.to_string()).collect();
         let leader_info_str = serde_json::to_string(&leader_strings)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
-        Python::with_gil(|py| {
-            let py_str: Py<PyAny> = PyString::new(py, &leader_info_str).into_py(py);
-            Ok(py_str)
-        })
+        Ok(leader_info_str)
     })
 }
 
@@ -92,9 +88,9 @@ fn return_leader_info(
 fn return_leader_info_slots(
     py: Python,
     fanout_slots: Option<u64>
-) -> PyResult<&PyAny> {
+) -> PyResult<Bound<PyAny>> {
     let rpc_client = RPC_CLIENT.get().ok_or_else(|| PyRuntimeError::new_err("RPC_CLIENT not initialized"))?.clone();
-    pyo3_tokio::future_into_py(py, async move {
+    tokio::future_into_py(py, async move {
         let leader_info = get_leader_info_slot_async(&rpc_client, fanout_slots.unwrap_or(1)).await?;
         let leader_info_json: Vec<serde_json::Value> = leader_info.into_iter()
             .map(|(slot, pubkey, tpu_addr)| {
@@ -107,10 +103,7 @@ fn return_leader_info_slots(
             .collect();
         let leader_info_str = serde_json::to_string(&leader_info_json)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
-        Python::with_gil(|py| {
-            let py_str: Py<PyAny> = PyString::new(py, &leader_info_str).into_py(py);
-            Ok(py_str)
-        })
+        Ok(leader_info_str)
     })
 }
 
@@ -203,7 +196,7 @@ async fn wait_for_confirmation_internal(
             }
             Err(_) => (),
         }
-        tokio::time::sleep(Duration::from_millis(wait_ms)).await;
+        time::sleep(Duration::from_millis(wait_ms)).await;
     }
     Ok(false)
 }
@@ -225,19 +218,19 @@ fn wait_for_confirmation(
         .map_err(|e| PyRuntimeError::new_err(format!("Invalid signature: {}", e)))?;
     let rpc = RPC_CLIENT.get().unwrap().clone();
 
-    let rt = tokio::runtime::Runtime::new()
+    let rt = Runtime::new()
         .map_err(|e| PyRuntimeError::new_err(format!("Runtime error: {}", e)))?;
     rt.block_on(wait_for_confirmation_internal(rpc, sig, poll_time, wait_ms))
         .map_err(|e| e)
 }
 
 #[pyfunction]
-fn send_transaction_async<'p>(
-    py: Python<'p>,
+fn send_transaction_async(
+    py: Python,
     raw_tx: Vec<u8>,
     max_retries: usize,
     fanout_slots: Option<u64>,
-) -> PyResult<&'p PyAny> {
+) -> PyResult<Bound<PyAny>> {
     let client = TPU_CLIENT
         .lock()
         .unwrap()
@@ -245,7 +238,7 @@ fn send_transaction_async<'p>(
         .ok_or_else(|| PyRuntimeError::new_err("TPU client not initialized"))?
         .clone();
 
-    pyo3_tokio::future_into_py(py, async move {
+    tokio::future_into_py(py, async move {
         let tx: Transaction = deserialize(&raw_tx)
             .map_err(|e| PyRuntimeError::new_err(format!("deserialize error: {}", e)))?;
         let sig = tx
@@ -258,19 +251,19 @@ fn send_transaction_async<'p>(
             if sent {
                 return Ok(sig.to_string());
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            time::sleep(Duration::from_millis(100)).await;
         }
         Err(PyRuntimeError::new_err("Failed to send transaction after max retries"))
     })
 }
 
 #[pyfunction]
-fn send_transaction_batch_async<'p>(
-    py: Python<'p>,
+fn send_transaction_batch_async(
+    py: Python,
     raw_txs: Vec<Vec<u8>>,
     max_retries: usize,
     fanout_slots: Option<u64>,
-) -> PyResult<&'p PyAny> {
+) -> PyResult<Bound<PyAny>> {
     let client = TPU_CLIENT
         .lock()
         .unwrap()
@@ -278,12 +271,13 @@ fn send_transaction_batch_async<'p>(
         .ok_or_else(|| PyRuntimeError::new_err("TPU client not initialized"))?
         .clone();
 
-    pyo3_tokio::future_into_py(py, async move {
+    tokio::future_into_py(py, async move {
         let transactions: Vec<Transaction> = raw_txs
             .into_iter()
-            .map(|raw_tx| deserialize(&raw_tx)
-                .map_err(|e| PyRuntimeError::new_err(format!("deserialize error: {}", e))))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|raw_tx| deserialize::<Transaction>(&raw_tx))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PyRuntimeError::new_err(format!("deserialize error: {}", e)))?;
+
         let wire_transactions: Vec<Vec<u8>> = transactions
             .iter()
             .map(|tx| bincode::serialize(tx).map_err(|e| PyRuntimeError::new_err(format!("serialize error: {}", e))))
@@ -299,7 +293,7 @@ fn send_transaction_batch_async<'p>(
                     .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
                 return Ok(signatures_json);
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            time::sleep(Duration::from_millis(100)).await;
         }
         Err(PyRuntimeError::new_err("Failed to send transactions after max retries"))
     })
@@ -342,7 +336,7 @@ fn start_slot_tracking_task(rpc: Arc<RpcClient>) {
                         eprintln!("[{}] Error fetching slot: {}", Utc::now().to_rfc3339(), e);
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                time::sleep(Duration::from_millis(500)).await;
             }
         });
         let _ = SLOT_UPDATE_TASK.set(handle);
@@ -350,7 +344,7 @@ fn start_slot_tracking_task(rpc: Arc<RpcClient>) {
 }
 
 #[pymodule]
-fn solana_custom(_py: Python, m: &PyModule) -> PyResult<()> {
+fn solana_custom(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tpu_clients, m)?)?;
     m.add_function(wrap_pyfunction!(wait_for_confirmation, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_async, m)?)?;
