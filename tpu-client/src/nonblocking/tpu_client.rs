@@ -734,6 +734,11 @@ where
     pub fn connection_cache(&self) -> &ConnectionCache<P, M, C> {
         &self.connection_cache
     }
+
+    /// Get the slot that the TPU client is currently targeting.
+    pub fn tpu_client_slot(&self) -> Slot {
+        self.leader_tpu_service.estimated_current_slot()
+    }
 }
 
 impl<P, M, C> Drop for TpuClient<P, M, C> {

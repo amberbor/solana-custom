@@ -27,6 +27,7 @@ use solana_transaction_status::{UiTransactionEncoding, EncodedConfirmedTransacti
 use solana_sdk::{transaction::Transaction, signature::Signature};
 use solana_sdk::pubkey::Pubkey;
 use solana_connection_cache::connection_cache::NewConnectionConfig;
+use std::collections::HashSet;
 
 // Static globals for RPC and TPU client
 static RPC_CLIENT: OnceCell<Arc<RpcClient>> = OnceCell::new();
@@ -36,12 +37,14 @@ static FAIL_COUNT: AtomicUsize = AtomicUsize::new(0);
 // Global variables for RPC and WS URLs
 static RPC_URL: OnceCell<String> = OnceCell::new();
 static WS_URL: OnceCell<String> = OnceCell::new();
+static FANOUT_SLOTS: AtomicU64 = AtomicU64::new(2); // Default value
 
 static GLOBAL_RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
 // Global variables for slot tracking
 static CURRENT_SLOT: AtomicU64 = AtomicU64::new(0);
 static SLOT_UPDATE_TASK: OnceCell<JoinHandle<()>> = OnceCell::new();
+static TPU_HEALTH_CHECK_TASK: OnceCell<JoinHandle<()>> = OnceCell::new();
 
 fn get_or_init_runtime() -> &'static Runtime {
     GLOBAL_RUNTIME.get_or_init(|| {
@@ -117,12 +120,14 @@ fn init_tpu_clients(
     // Set the global URLs if not already set
     let _ = RPC_URL.set(rpc_url.to_string());
     let _ = WS_URL.set(ws_url.to_string());
+    let fanout_val = fanout_slots.unwrap_or(2);
+    FANOUT_SLOTS.store(fanout_val, Ordering::SeqCst);
 
     let rpc = Arc::new(RpcClient::new(rpc_url.to_string()));
     let _ = RPC_CLIENT.set(rpc.clone());
 
     let cfg = TpuClientConfig {
-        fanout_slots: fanout_slots.unwrap_or(1),
+        fanout_slots: fanout_val,
     };
     let rt = get_or_init_runtime();
     let quic_config = QuicConfig::new().unwrap();
@@ -150,7 +155,7 @@ fn init_tpu_clients(
     println!(
         "[{}][init] RPC+TPU fanout_slots={} initialized",
         Utc::now().to_rfc3339(),
-        fanout_slots.unwrap_or(2)
+        fanout_val
     );
 
     // Creating connection cache before for all leaders
@@ -174,8 +179,64 @@ fn init_tpu_clients(
 
     // Start slot tracking
     start_slot_tracking_task(rpc);
+    start_tpu_health_check_task();
 
     Ok(())
+}
+
+async fn reinit_tpu_client() -> Result<(), PyErr> {
+    let rpc_url = RPC_URL.get().ok_or_else(|| PyRuntimeError::new_err("RPC_URL not initialized"))?.clone();
+    let ws_url = WS_URL.get().ok_or_else(|| PyRuntimeError::new_err("WS_URL not initialized"))?.clone();
+    let fanout_slots = FANOUT_SLOTS.load(Ordering::SeqCst);
+
+    let rpc = match RPC_CLIENT.get() {
+        Some(client) => client.clone(),
+        None => {
+             Arc::new(RpcClient::new(rpc_url.clone()))
+        }
+    };
+
+    let cfg = TpuClientConfig {
+        fanout_slots,
+    };
+
+    let quic_config = QuicConfig::new().unwrap();
+    let connection_manager = QuicConnectionManager::new_with_connection_config(quic_config);
+    let connection_pool_size = 8;
+    let connection_cache = Arc::new(
+        solana_connection_cache::connection_cache::ConnectionCache::new(
+            "tpu_client",
+            connection_manager,
+            connection_pool_size,
+        ).unwrap()
+    );
+    
+    let reinit_fut = TpuClient::new_with_connection_cache(rpc.clone(), &ws_url, cfg, connection_cache);
+
+    // Add a 15-second timeout to the re-initialization process itself.
+    match time::timeout(Duration::from_secs(15), reinit_fut).await {
+        Ok(Ok(client)) => { // Re-initialization succeeded within the time limit.
+            let client_arc = Arc::new(client);
+            let mut tpu_client_guard = TPU_CLIENT.lock().unwrap();
+            *tpu_client_guard = Some(client_arc);
+            println!(
+                "[{}][reinit] RPC+TPU with fanout_slots={} re-initialized successfully.",
+                Utc::now().to_rfc3339(),
+                fanout_slots
+            );
+            Ok(())
+        }
+        Ok(Err(e)) => { // Re-initialization failed, but didn't time out.
+            let err_msg = format!("Failed to re-initialize TPU client: {}", e);
+            eprintln!("[{}] {}", Utc::now().to_rfc3339(), err_msg);
+            Err(PyRuntimeError::new_err(err_msg))
+        }
+        Err(_) => { // Re-initialization timed out.
+            let err_msg = "TPU client re-initialization timed out after 15 seconds.".to_string();
+            eprintln!("[{}] {}", Utc::now().to_rfc3339(), err_msg);
+            Err(PyRuntimeError::new_err(err_msg))
+        }
+    }
 }
 
 /// Internal async confirmation helper
@@ -343,6 +404,55 @@ fn start_slot_tracking_task(rpc: Arc<RpcClient>) {
     }
 }
 
+fn start_tpu_health_check_task() {
+    if TPU_HEALTH_CHECK_TASK.get().is_none() {
+        let rt = get_or_init_runtime();
+        let handle = rt.spawn(async move {
+            loop {
+                time::sleep(Duration::from_secs(10)).await;
+                
+                let tpu_client_opt = TPU_CLIENT.lock().unwrap().clone();
+                let mut needs_reinit = false;
+                const STALE_SLOT_THRESHOLD: u64 = 20; 
+
+                if let Some(tpu_client) = tpu_client_opt {
+                    let rpc_slot = CURRENT_SLOT.load(Ordering::SeqCst);
+                    let tpu_slot = tpu_client.tpu_client_slot();
+
+                    if rpc_slot > tpu_slot.saturating_add(STALE_SLOT_THRESHOLD) {
+                        eprintln!(
+                            "[{}] Health Check Failed: TPU client slot ({}) is stale compared to RPC slot ({}).",
+                            Utc::now().to_rfc3339(), tpu_slot, rpc_slot
+                        );
+                        needs_reinit = true;
+                    } else {
+                        println!("[{}] Health Check Passed: TPU client is responsive and current.", Utc::now().to_rfc3339());
+                    }
+                } else {
+                    eprintln!("[{}] Health Check Failed: TPU client is not initialized.", Utc::now().to_rfc3339());
+                    needs_reinit = true;
+                }
+
+                if needs_reinit {
+                    eprintln!("[{}] Attempting to auto-recover TPU client...", Utc::now().to_rfc3339());
+                    if let Err(e) = reinit_tpu_client().await {
+                        eprintln!("[{}] Auto-recovery failed: {}", Utc::now().to_rfc3339(), e);
+                    }
+                }
+            }
+        });
+        let _ = TPU_HEALTH_CHECK_TASK.set(handle);
+    }
+}
+
+#[pyfunction]
+fn test_clear_tpu_client() -> PyResult<()> {
+    let mut tpu_client_guard = TPU_CLIENT.lock().unwrap();
+    *tpu_client_guard = None;
+    println!("[{}] TPU client manually cleared for testing.", Utc::now().to_rfc3339());
+    Ok(())
+}
+
 #[pymodule]
 fn solana_custom(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tpu_clients, m)?)?;
@@ -352,5 +462,6 @@ fn solana_custom(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(return_leader_info_slots, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_batch_async, m)?)?;
     m.add_function(wrap_pyfunction!(get_current_slot, m)?)?;
+    m.add_function(wrap_pyfunction!(test_clear_tpu_client, m)?)?;
     Ok(())
 }
