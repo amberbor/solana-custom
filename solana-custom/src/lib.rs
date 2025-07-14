@@ -427,6 +427,49 @@ fn send_transaction_batch_async(
     })
 }
 
+#[pyfunction]
+fn send_transaction_batch_async_with_slot(
+    py: Python,
+    raw_txs: Vec<Vec<u8>>,
+    max_retries: usize,
+    fanout_slots: Option<u64>,
+    current_slot: Option<u64>,
+) -> PyResult<Bound<PyAny>> {
+    let client = TPU_CLIENT
+        .lock()
+        .unwrap()
+        .as_ref()
+        .ok_or_else(|| PyRuntimeError::new_err("TPU client not initialized"))?
+        .clone();
+
+    tokio::future_into_py(py, async move {
+        let transactions: Vec<Transaction> = raw_txs
+            .into_iter()
+            .map(|raw_tx| deserialize::<Transaction>(&raw_tx))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| PyRuntimeError::new_err(format!("deserialize error: {}", e)))?;
+
+        let wire_transactions: Vec<Vec<u8>> = transactions
+            .iter()
+            .map(|tx| bincode::serialize(tx).map_err(|e| PyRuntimeError::new_err(format!("serialize error: {}", e))))
+            .collect::<Result<_, _>>()?;
+        let signatures: Vec<String> = transactions
+            .iter()
+            .map(|tx| tx.signatures[0].to_string())
+            .collect();
+        for _ in 1..=max_retries {
+            let result = client.try_send_wire_transaction_batch_with_slot(wire_transactions.clone(), fanout_slots, current_slot).await;
+            if result.is_ok() {
+                let signatures_json = serde_json::to_string(&signatures)
+                    .map_err(|e| PyRuntimeError::new_err(format!("JSON serialization error: {}", e)))?;
+                return Ok(signatures_json);
+            }
+            time::sleep(Duration::from_millis(100)).await;
+        }
+        Err(PyRuntimeError::new_err("Failed to send transactions after max retries"))
+    })
+}
+
 #[pymodule]
 fn solana_custom(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tpu_clients, m)?)?;
@@ -435,6 +478,7 @@ fn solana_custom(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(return_leader_info, m)?)?;
     m.add_function(wrap_pyfunction!(return_leader_info_slots, m)?)?;
     m.add_function(wrap_pyfunction!(send_transaction_batch_async, m)?)?;
+    m.add_function(wrap_pyfunction!(send_transaction_batch_async_with_slot, m)?)?;
     m.add_function(wrap_pyfunction!(reinit_tpu_client, m)?)?; // Still available for manual control
     Ok(())
 }

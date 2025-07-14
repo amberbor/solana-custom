@@ -507,6 +507,51 @@ where
         }
     }
 
+    /// Send a batch of wire transactions to the TPU leaders using a custom current slot
+    pub async fn try_send_wire_transaction_batch_with_slot(
+        &self,
+        wire_transactions: Vec<Vec<u8>>,
+        fanout_slots: Option<u64>,
+        current_slot: Option<u64>,
+    ) -> TransportResult<()> {
+        let slots = fanout_slots.unwrap_or(MAX_FANOUT_SLOTS);
+        let leaders = self
+            .leader_tpu_service
+            .leader_tpu_sockets_with_slot(slots, current_slot);
+        let futures = leaders
+            .iter()
+            .map(|addr| {
+                send_wire_transaction_batch_to_addr(
+                    &self.connection_cache,
+                    addr,
+                    &wire_transactions,
+                )
+            })
+            .collect::<Vec<_>>();
+        let results: Vec<TransportResult<()>> = join_all(futures).await;
+
+        let mut last_error: Option<TransportError> = None;
+        let mut some_success = false;
+        for result in results {
+            if let Err(e) = result {
+                if last_error.is_none() {
+                    last_error = Some(e);
+                }
+            } else {
+                some_success = true;
+            }
+        }
+        if !some_success {
+            Err(if let Some(err) = last_error {
+                err
+            } else {
+                std::io::Error::new(std::io::ErrorKind::Other, "No sends attempted").into()
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     /// Create a new client that disconnects when dropped
     pub async fn new(
         name: &'static str,
@@ -821,6 +866,14 @@ impl LeaderTpuService {
             .read()
             .unwrap()
             .get_leader_sockets(current_slot, fanout_slots)
+    }
+
+    fn leader_tpu_sockets_with_slot(&self, fanout_slots: u64, current_slot: Option<u64>) -> Vec<SocketAddr> {
+        let slot = current_slot.unwrap_or_else(|| self.recent_slots.estimated_current_slot());
+        self.leader_tpu_cache
+            .read()
+            .unwrap()
+            .get_leader_sockets(slot, fanout_slots)
     }
 
     async fn run(
